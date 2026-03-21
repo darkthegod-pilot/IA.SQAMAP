@@ -1,0 +1,27 @@
+[Unit]
+Description=Vlad Volkov — Pentester Web Especialista
+After=network.target
+Documentation=https://github.com/darkthegod/IA.SQAMAP
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/vlad-volkov
+ExecStart=/usr/bin/python3 /opt/vlad-volkov/vlad.py instalar
+Restart=on-failure
+RestartSec=10
+
+# Segurança mínima (pentest requer acesso amplo)
+NoNewPrivileges=false
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vlad-volkov
+
+# Variáveis de ambiente
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONPATH=/opt/vlad-volkov"
+
+[Install]
+WantedBy=multi-user.target

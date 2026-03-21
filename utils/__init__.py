@@ -1,16 +1,16 @@
-# IA.SQAMAP Utilities
-# AI-Assisted SQLMap Penetration Testing Tools
+# Vlad Volkov — Utilitários SQLMap
+# 100% em Português do Brasil
 
-from .waf_detector import WAFDetector
-from .tamper_selector import TamperSelector
-from .command_builder import CommandBuilder
-from .technique_advisor import TechniqueAdvisor
-from .output_parser import OutputParser
+from .detector_waf import DetectorWAF
+from .seletor_tamper import SeletorTamper
+from .construtor_comando import ConstrutorComando
+from .conselheiro_tecnica import ConselheiroTecnica
+from .parser_saida import ParserSaida
 
 __all__ = [
-    'WAFDetector',
-    'TamperSelector',
-    'CommandBuilder',
-    'TechniqueAdvisor',
-    'OutputParser',
+    'DetectorWAF',
+    'SeletorTamper',
+    'ConstrutorComando',
+    'ConselheiroTecnica',
+    'ParserSaida',
 ]
