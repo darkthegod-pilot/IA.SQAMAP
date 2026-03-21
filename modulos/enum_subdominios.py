@@ -173,25 +173,58 @@ class EnumeradorSubdominios:
         return entrada.split(":")[0]
 
     def _resolver_dns(self, sub: str, dominio: str) -> Optional[dict]:
-        """Tenta resolver o subdominio. Retorna dict se resolver."""
+        """Tenta resolver o subdomínio. Retorna dict se resolver, None se não existir."""
         fqdn = f"{sub}.{dominio}"
-        try:
-            ip = socket.gethostbyname(fqdn)
-        except socket.gaierror:
+        ip = None
+
+        # Tentar resolução DNS com retry para erros de rede (não para NXDOMAIN)
+        for tentativa in range(3):
+            try:
+                ip = socket.gethostbyname(fqdn)
+                break
+            except socket.gaierror as e:
+                codigo_erro = e.args[0] if e.args else 0
+                # EAI_NONAME / NXDOMAIN — host não existe, não tentar novamente
+                if codigo_erro in (socket.EAI_NONAME, -2, -3, 11001):
+                    return None
+                # Outros erros (timeout, servidor DNS fora, etc.) — tentar novamente
+                if tentativa < 2:
+                    import time
+                    time.sleep(0.5 * (tentativa + 1))
+                else:
+                    return None  # Falhou 3x — pular
+
+        if not ip:
             return None
 
-        # Tenta requisição HTTP para ver status
+        # Tenta requisição HTTP para ver status (SSL verificado por padrão)
         status_http: str | int = "—"
         try:
-            import requests
-            r = requests.get(
+            import requests as _req
+            import urllib3
+            # Suprimir warnings de SSL apenas se explicitamente desabilitado
+            r = _req.get(
                 f"http://{fqdn}",
                 timeout=5,
-                verify=False,
+                verify=True,
                 allow_redirects=True,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; Vlad-Scanner/2.1)"},
+                headers={"User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                )},
             )
             status_http = r.status_code
+        except _req.exceptions.SSLError:
+            # Tentar sem SSL verification se HTTPS falhar
+            try:
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                r = _req.get(f"http://{fqdn}", timeout=5, verify=False,
+                             allow_redirects=True,
+                             headers={"User-Agent": "Mozilla/5.0"})
+                status_http = r.status_code
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -201,5 +234,5 @@ class EnumeradorSubdominios:
             "subdominio": fqdn,
             "ip": ip,
             "status_http": status_http,
-            "descricao": f"Subdominio ativo: {fqdn} → {ip}",
+            "descricao": f"Subdomínio ativo: {fqdn} → {ip}",
         }

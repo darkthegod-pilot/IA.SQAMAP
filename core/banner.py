@@ -11,7 +11,7 @@ import sys
 
 console = Console()
 
-VERSAO = "2.0.0"
+VERSAO = "2.2.0"
 
 ASCII_ART = r"""
  __   ____      _     ____    __   ____  __     ___   _  _

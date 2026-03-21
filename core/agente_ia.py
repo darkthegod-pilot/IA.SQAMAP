@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -17,7 +18,7 @@ console = Console()
 VLAD_CONFIG_DIR = Path.home() / ".vlad"
 VLAD_CONFIG_FILE = VLAD_CONFIG_DIR / "config.json"
 
-SYSTEM_PROMPT = """Você é Vlad Volkov, um pentester web especialista com profundo conhecimento
+SYSTEM_PROMPT_BASE = """Você é Vlad Volkov, um pentester web especialista com profundo conhecimento
 em SQL Injection, XSS, LFI, SSRF, Command Injection, evasão de WAF e automação de testes de segurança.
 Você responde SEMPRE em português brasileiro.
 Você é direto, técnico e eficiente. Não faz rodeios.
@@ -39,7 +40,29 @@ class AgenteIA:
         self._api_key: Optional[str] = None
         self._client = None
         self._historico: list[dict] = []
+        self._base_conhecimento = None  # injetada externamente via set_conhecimento()
+        self._alvo_atual: str = ""
         self._carregar_configuracao()
+
+    def set_conhecimento(self, base) -> None:
+        """Injeta a base de conhecimento para enriquecer o contexto do GPT."""
+        self._base_conhecimento = base
+
+    def set_alvo(self, alvo: str) -> None:
+        """Define o alvo atual para contextualizar o conhecimento."""
+        self._alvo_atual = alvo
+
+    def _obter_system_prompt(self) -> str:
+        """Monta system prompt com base de conhecimento injetada."""
+        prompt = SYSTEM_PROMPT_BASE
+        if self._base_conhecimento is not None:
+            try:
+                ctx = self._base_conhecimento.obter_contexto_para_ia(self._alvo_atual)
+                if ctx:
+                    prompt += f"\n\n{ctx}"
+            except Exception:
+                pass
+        return prompt
 
     # ─────────────────────────── CONFIG ──────────────────────────────────────
 
@@ -129,7 +152,7 @@ class AgenteIA:
     # ─────────────────────────── CHAT ────────────────────────────────────────
 
     def chat(self, mensagem: str, contexto_scan: Optional[dict] = None) -> str:
-        """Envia mensagem ao GPT e retorna a resposta."""
+        """Envia mensagem ao GPT e retorna a resposta. Retry 2x em caso de falha de rede."""
         if not self.disponivel():
             return (
                 "[IA indisponível] Configure a API key via menu [9] Configurações.\n"
@@ -144,18 +167,61 @@ class AgenteIA:
 
         self._historico.append({"role": "user", "content": user_content})
 
-        try:
-            resposta = self._client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "system", "content": SYSTEM_PROMPT}] + self._historico,
-                temperature=0.3,
-                max_tokens=800,
-            )
-            texto = resposta.choices[0].message.content or ""
-            self._historico.append({"role": "assistant", "content": texto})
-            return texto
-        except Exception as e:
-            return f"[Erro ao contactar o GPT] {e}"
+        # Salvar na base de conhecimento se disponível
+        if self._base_conhecimento is not None:
+            try:
+                self._base_conhecimento.adicionar_contexto_chat("user", mensagem[:400])
+            except Exception:
+                pass
+
+        system_prompt = self._obter_system_prompt()
+
+        # Retry até 2x para erros de rede/timeout
+        ultima_excecao: Optional[Exception] = None
+        for tentativa in range(3):
+            try:
+                resposta = self._client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "system", "content": system_prompt}] + self._historico,
+                    temperature=0.3,
+                    max_tokens=900,
+                    timeout=30,
+                )
+                texto = resposta.choices[0].message.content or ""
+                self._historico.append({"role": "assistant", "content": texto})
+
+                # Salvar resposta na base de conhecimento
+                if self._base_conhecimento is not None:
+                    try:
+                        self._base_conhecimento.adicionar_contexto_chat("assistant", texto[:400])
+                    except Exception:
+                        pass
+
+                return texto
+
+            except Exception as e:
+                ultima_excecao = e
+                tipo = type(e).__name__
+                # Não fazer retry em erros de autenticação (401) ou quota (429)
+                if any(k in tipo.lower() for k in ("auth", "apikey", "permission")):
+                    break
+                if "401" in str(e) or "403" in str(e) or "invalid_api_key" in str(e).lower():
+                    break
+                if tentativa < 2:
+                    time.sleep(2 ** tentativa)  # backoff: 1s, 2s
+
+        # Remover a mensagem do usuário do histórico após falha
+        if self._historico and self._historico[-1]["role"] == "user":
+            self._historico.pop()
+
+        err_msg = str(ultima_excecao) if ultima_excecao else "erro desconhecido"
+        if "api_key" in err_msg.lower() or "401" in err_msg:
+            return "[IA] API key inválida ou expirada. Reconfigure em menu [9] → [1]."
+        if "quota" in err_msg.lower() or "429" in err_msg:
+            return "[IA] Limite de requisições atingido. Aguarde alguns instantes."
+        if "connect" in err_msg.lower() or "timeout" in err_msg.lower():
+            return "[IA] Sem conexão com o GPT. Verifique sua internet."
+        return f"[IA] Erro ao contactar GPT: {err_msg[:120]}"
 
     def analisar_vulnerabilidades(self, relatorio_dict: dict) -> str:
         """Analisa o relatório de scan e recomenda ações."""

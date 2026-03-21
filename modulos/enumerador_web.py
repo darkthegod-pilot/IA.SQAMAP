@@ -178,17 +178,26 @@ CABECALHOS_SEGURANCA = [
 class EnumeradorWeb:
     """Enumera recursos web: diretórios, tecnologias, arquivos expostos e cabeçalhos."""
 
-    def __init__(self, timeout: int = 8, verificar_ssl: bool = False,
-                 threads: int = 10) -> None:
+    def __init__(self, timeout: int = 8, verificar_ssl: bool = True,
+                 threads: int = 10, modo_furtivo=None) -> None:
         self.timeout = timeout
-        self.verificar_ssl = verificar_ssl
+        self.verificar_ssl = verificar_ssl  # True por padrão (seguro)
         self.threads = threads
+        self._furtivo = modo_furtivo
         self.sessao = requests.Session()
         self.sessao.headers.update({
-            "User-Agent": "Mozilla/5.0 (compatible; Vlad-Scanner/2.1)",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         })
         self.sessao.verify = verificar_ssl
         self.resultados: list[dict] = []
+        # Tamanho da página 404 para comparação (anti-false-positive)
+        self._tamanho_404: int = 0
 
     # ─────────────────────── PÚBLICO ─────────────────────────────────────────
 
@@ -199,6 +208,9 @@ class EnumeradorWeb:
 
         if verboso:
             console.print(f"\n[bold cyan]  ◉ Enumeração Web:[/] {base}")
+
+        # Calibrar tamanho da página 404 (para evitar falsos positivos)
+        self._calibrar_404(base)
 
         # 1. Cabeçalhos de segurança
         hdrs = self._analisar_cabecalhos_seguranca(base)
@@ -279,10 +291,27 @@ class EnumeradorWeb:
         return url.rstrip("/")
 
     def _get(self, url: str) -> Optional[requests.Response]:
+        """Executa GET com UA rotacionado em modo furtivo."""
         try:
+            # Rotacionar UA em modo furtivo
+            if self._furtivo and self._furtivo.ativo:
+                self._furtivo.atualizar_sessao(self.sessao)
+                self._furtivo.aguardar()
             return self.sessao.get(url, timeout=self.timeout, allow_redirects=True)
         except RequestException:
             return None
+
+    def _calibrar_404(self, base: str) -> None:
+        """Faz request para URL inexistente para calibrar tamanho de 404 personalizado."""
+        try:
+            import random
+            import string
+            caminho_fake = "/" + "".join(random.choices(string.ascii_lowercase, k=16))
+            r = self.sessao.get(base + caminho_fake, timeout=self.timeout, allow_redirects=True)
+            if r and r.status_code in (200, 404):
+                self._tamanho_404 = len(r.text)
+        except Exception:
+            self._tamanho_404 = 0
 
     def _analisar_cabecalhos_seguranca(self, base: str) -> list[dict]:
         resultados = []
@@ -305,7 +334,13 @@ class EnumeradorWeb:
             problemas = []
             if not ck.secure:
                 problemas.append("sem Secure")
-            if not ck.has_nonstandard_attr("HttpOnly"):
+            # Verificar HttpOnly (case-insensitive)
+            httponly = (
+                ck.has_nonstandard_attr("HttpOnly")
+                or ck.has_nonstandard_attr("httponly")
+                or "httponly" in {k.lower() for k in getattr(ck, "_rest", {})}
+            )
+            if not httponly:
                 problemas.append("sem HttpOnly")
             if problemas:
                 resultados.append({
@@ -403,29 +438,53 @@ class EnumeradorWeb:
             resp = self._get(base + path)
             if not resp:
                 continue
-            if resp.status_code == 200 and len(resp.text) > 5:
-                conteudo = resp.text[:200]
-                # Verificar se é realmente conteúdo sensível (não página 404 customizada)
-                if not any(p in conteudo.lower() for p in ["not found", "404", "error"]):
-                    resultados.append({
-                        "tipo": "arquivo_sensivel",
-                        "severidade": "alto",
-                        "item": base + path,
-                        "descricao": f"Arquivo sensível exposto: {path}",
-                        "url": base + path,
-                        "evidencia": conteudo[:100],
-                    })
+            if resp.status_code == 200 and len(resp.text) > 20:
+                conteudo = resp.text[:400]
+                conteudo_lower = conteudo.lower()
 
-                    # Detectar segredos no conteúdo
-                    if re.search(r"(password|passwd|secret|api.?key|token|private.?key)\s*[=:]\s*\S+",
-                                 conteudo, re.IGNORECASE):
-                        resultados.append({
-                            "tipo": "segredo_exposto",
-                            "severidade": "critico",
-                            "item": base + path,
-                            "descricao": f"POSSÍVEL SEGREDO EXPOSTO em {path}",
-                            "url": base + path,
-                        })
+                # Anti-false-positive 1: conteúdo muito parecido com 404 calibrado
+                if self._tamanho_404 > 0:
+                    diff = abs(len(resp.text) - self._tamanho_404)
+                    similaridade = 1 - (diff / max(self._tamanho_404, len(resp.text)))
+                    if similaridade > 0.85:  # 85%+ similar = provavelmente 404 custom
+                        continue
+
+                # Anti-false-positive 2: conteúdo claramente é página de erro genérica
+                palavras_erro = ["page not found", "404 not found", "file not found",
+                                 "object not found", "the page you requested"]
+                if any(p in conteudo_lower for p in palavras_erro):
+                    continue
+
+                # Anti-false-positive 3: content-type HTML para arquivos de config
+                ct = resp.headers.get("Content-Type", "").lower()
+                if path.endswith((".env", ".yml", ".yaml", ".json", ".xml", ".php",
+                                  ".sql", ".cfg", ".config", ".ini")):
+                    if "html" in ct and "<html" in conteudo_lower and "<!doctype" in conteudo_lower:
+                        continue
+
+                # Passou todas as verificações anti-false-positive
+                resultados.append({
+                    "tipo": "arquivo_sensivel",
+                    "severidade": "alto",
+                    "item": base + path,
+                    "descricao": f"Arquivo sensível exposto: {path}",
+                    "url": base + path,
+                    "evidencia": conteudo[:100],
+                })
+
+                # Detectar segredos no conteúdo
+                if re.search(
+                    r"(password|passwd|secret|api[_\-.]?key|token|private[_\-.]?key"
+                    r"|access[_\-.]?key|auth[_\-.]?key)\s*[=:]\s*\S+",
+                    conteudo, re.IGNORECASE,
+                ):
+                    resultados.append({
+                        "tipo": "segredo_exposto",
+                        "severidade": "critico",
+                        "item": base + path,
+                        "descricao": f"POSSÍVEL SEGREDO EXPOSTO em {path}",
+                        "url": base + path,
+                    })
 
         return resultados
 

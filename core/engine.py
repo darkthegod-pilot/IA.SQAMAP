@@ -2,6 +2,7 @@
 Motor principal do Vlad Volkov — orquestrador de todos os scans.
 """
 
+import shlex
 import subprocess
 import shutil
 import time
@@ -236,15 +237,23 @@ class VladEngine:
             dir_saida=str(saida_dir),
         )
 
+        proc = None
         try:
-            resultado = subprocess.run(
-                cmd_real,
-                shell=True,
-                capture_output=True,
+            # Usar shlex.split para evitar shell injection (sem shell=True)
+            try:
+                cmd_parts = shlex.split(cmd_real)
+            except ValueError:
+                # Fallback: split simples se shlex falhar
+                cmd_parts = cmd_real.split()
+
+            proc = subprocess.Popen(
+                cmd_parts,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=300  # 5 minutos máximo para scan rápido
             )
-            saida_texto = resultado.stdout + resultado.stderr
+            stdout, stderr = proc.communicate(timeout=300)
+            saida_texto = stdout + stderr
 
             # Parsear saída
             achado = self.parser.parsear_texto(saida_texto, alvo)
@@ -280,7 +289,16 @@ class VladEngine:
                 relatorio.credenciais_extraidas = len(achado.info_db.credenciais)
 
         except subprocess.TimeoutExpired:
+            # Encerrar processo que ainda está rodando
+            if proc is not None:
+                try:
+                    proc.kill()
+                    proc.communicate()
+                except Exception:
+                    pass
             _imprimir_aviso("SQLMap excedeu o tempo limite (5 min). Considere usar scan mais focado.")
+        except FileNotFoundError:
+            _imprimir_erro("sqlmap não encontrado no PATH. Instale com: pip3 install sqlmap")
         except Exception as e:
             _imprimir_aviso(f"Erro ao executar SQLMap: {e}")
 

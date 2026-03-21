@@ -248,6 +248,44 @@ class ConstrutorComando:
 
         return self.construir(opcoes)
 
+    def construir_scan_basico(self, alvo: str, dbms: Optional[str] = None,
+                               tampers: Optional[str] = None) -> str:
+        """
+        Constrói comando SQLMap básico de reconhecimento.
+        Usado na fase 1 do engine (scan inicial para detectar injeção).
+        """
+        opcoes = OpcoesSQLMap(
+            alvo=alvo,
+            perfil="padrao",
+            dbms=dbms,
+            tampers=tampers,
+            salvar_sessao=False,
+        )
+        return self.construir(opcoes)
+
+    def construir_cmd_completo(self, alvo: str, dbms: Optional[str] = None,
+                                tampers: Optional[str] = None,
+                                dir_saida: str = "saidas") -> str:
+        """
+        Constrói comando SQLMap completo com enumeração e diretório de saída.
+        Usado na fase 2 do engine (scan profundo com dump).
+        """
+        opcoes = OpcoesSQLMap(
+            alvo=alvo,
+            perfil="padrao",
+            dbms=dbms,
+            tampers=tampers,
+            enumeracoes=["bancos", "tabelas"],
+            salvar_sessao=False,
+        )
+        cmd = self.construir(opcoes)
+        # Substituir --output-dir padrão pelo diretório fornecido
+        import shlex
+        alvo_limpo = alvo.split("//")[-1].split("/")[0].split("?")[0]
+        saida_final = f"{dir_saida}/sqlmap_{alvo_limpo}"
+        cmd += f" --output-dir={shlex.quote(saida_final)}"
+        return cmd
+
     def exibir_comando(self, comando: str, titulo: str = "Comando SQLMap") -> None:
         """Exibe o comando com syntax highlighting."""
         console.print()

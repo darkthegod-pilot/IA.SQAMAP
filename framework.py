@@ -33,7 +33,23 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 console = Console()
 
-VERSAO = "2.1.0"
+VERSAO = "2.2.0"
+
+
+# ─────────────────────────── HELPERS DE INPUT ────────────────────────────────
+
+def _pedir_inteiro(prompt: str, default: int, min_val: int = 1,
+                   max_val: int = 99999) -> int:
+    """Prompt seguro para inteiro com validação de range. Nunca crasha."""
+    while True:
+        raw = Prompt.ask(prompt, default=str(default)).strip()
+        try:
+            valor = int(raw)
+            if min_val <= valor <= max_val:
+                return valor
+            console.print(f"  [yellow]⚠  Digite um número entre {min_val} e {max_val}.[/]")
+        except ValueError:
+            console.print(f"  [yellow]⚠  '{raw}' não é um número válido.[/]")
 
 BANNER_ART = r"""
  __   ____      _      ____     __   ___   __    __ ___   __  _  __
@@ -54,8 +70,10 @@ def exibir_banner() -> None:
     ))
 
 
-def exibir_menu_principal(ia_disponivel: bool = False) -> None:
+def exibir_menu_principal(ia_disponivel: bool = False,
+                           furtivo_ativo: bool = False) -> None:
     ia_status = "[green]✓ IA online[/]" if ia_disponivel else "[dim]○ IA offline (config em [9])[/]"
+    furtivo_str = "[yellow]⚠ FURTIVO[/]" if furtivo_ativo else "[dim]○ normal[/]"
 
     console.print()
     console.print(Panel(
@@ -68,8 +86,10 @@ def exibir_menu_principal(ia_disponivel: bool = False) -> None:
             "[bold red]  [6][/]  🌐  Subdominios               [dim](enumerar via DNS)[/]",
             "[bold red]  [7][/]  📋  Range de Sites            [dim](lista / arquivo / range de IP)[/]",
             "[bold red]  [8][/]  📊  Relatórios                [dim](ver e exportar)[/]",
-            "[bold red]  [9][/]  ⚙   Configurações             [dim](API key, proxy, threads...)[/]",
+            "[bold red]  [9][/]  ⚙   Configurações             [dim](API key, proxy, stealth...)[/]",
             f"[bold red]  [0][/]  🤖  Chat com Vlad IA          {ia_status}",
+            f"[bold red]  [A][/]  ⬆   Atualizar Vlad            [dim](git pull automático)[/]",
+            f"[bold red]  [F][/]  👁   Modo Furtivo              {furtivo_str}",
             "[bold red]  [q][/]  ✕   Sair",
         ]),
         title="[bold]MENU PRINCIPAL[/]",
@@ -339,7 +359,7 @@ def modulo_subdominios() -> None:
     if not dominio:
         return
 
-    threads = int(Prompt.ask("  Threads", default="30").strip())
+    threads = _pedir_inteiro("  Threads", default=30, min_val=1, max_val=100)
 
     from modulos.enum_subdominios import EnumeradorSubdominios
     enum = EnumeradorSubdominios(threads=threads)
@@ -348,7 +368,7 @@ def modulo_subdominios() -> None:
 
 
 def modulo_range() -> None:
-    """Módulo 7 — Range de Sites."""
+    """Módulo 7 — Range de Sites com navegação por seleção."""
     console.print(Panel("[bold red]◉ RANGE DE SITES[/]", border_style="red"))
 
     console.print()
@@ -359,33 +379,53 @@ def modulo_range() -> None:
 
     origem = Prompt.ask("  Origem", default="1").strip()
 
-    from modulos.scanner_completo import ScannerCompleto
+    from modulos.scanner_completo import ScannerCompleto, _parsear_selecao_range
     scanner = ScannerCompleto(verboso=False)
     alvos: list[str] = []
 
     if origem == "1":
         lista_str = Prompt.ask("  URLs separadas por vírgula").strip()
         alvos = [u.strip() for u in lista_str.split(",") if u.strip()]
+        alvos = [("http://" + u if not u.startswith("http") else u) for u in alvos]
     elif origem == "2":
         arquivo = Prompt.ask("  Caminho do arquivo").strip()
         alvos = scanner.carregar_alvos_arquivo(arquivo)
-        console.print(f"  [dim]{len(alvos)} alvos carregados.[/]")
     elif origem == "3":
         range_ip = Prompt.ask("  Range de IP").strip()
-        porta = int(Prompt.ask("  Porta", default="80").strip())
+        porta = _pedir_inteiro("  Porta", default=80, min_val=1, max_val=65535)
         alvos = scanner.carregar_alvos_range_ip(range_ip, porta)
-        console.print(f"  [dim]{len(alvos)} IPs gerados.[/]")
 
     if not alvos:
         console.print("  [red]Nenhum alvo válido.[/]")
         return
 
+    # ── Exibir lista numerada ─────────────────────────────────────────────────
     console.print()
-    console.print("  Módulos:")
+    console.print(f"  [bold]Alvos carregados ({len(alvos)}):[/]")
+    for i, a in enumerate(alvos, 1):
+        console.print(f"    [dim][{i}][/] {a}")
+
+    console.print()
+    console.print(
+        "  [dim]Quais escanear?[/]  "
+        "[cyan]3[/]=só o 3  "
+        "[cyan]1-7[/]=range  "
+        "[cyan]1,3,5[/]=específicos  "
+        "[cyan]Enter[/]=todos"
+    )
+    selecao = Prompt.ask("  Seleção", default="todos").strip()
+    indices = _parsear_selecao_range(selecao, len(alvos))
+    alvos_selecionados = [alvos[i] for i in indices]
+
+    console.print(f"  [dim]→ {len(alvos_selecionados)} alvo(s) selecionado(s).[/]")
+
+    # ── Módulos ───────────────────────────────────────────────────────────────
+    console.print()
+    console.print("  Módulos a executar:")
     console.print("    [1] Scan completo (todos)")
     console.print("    [2] Só SQLi")
-    console.print("    [3] Só Web (XSS/LFI/SSRF...)")
-    console.print("    [4] Só Enumeração")
+    console.print("    [3] Só Web (XSS/LFI/SSRF/CMD/Auth)")
+    console.print("    [4] Só Enumeração (dirs/techs/robots)")
     modulo_escolha = Prompt.ask("  Módulo", default="1").strip()
 
     mapa_modulos = {
@@ -396,9 +436,9 @@ def modulo_range() -> None:
     }
     modulos_range = mapa_modulos.get(modulo_escolha)
 
-    threads = int(Prompt.ask("  Threads simultâneas", default="3").strip())
+    threads = _pedir_inteiro("  Threads simultâneas", default=3, min_val=1, max_val=20)
 
-    scanner.escanear_range(alvos, modulos=modulos_range, threads=threads)
+    scanner.escanear_range(alvos_selecionados, modulos=modulos_range, threads=threads)
 
 
 def modulo_relatorios() -> None:
@@ -452,7 +492,8 @@ def modulo_relatorios() -> None:
         console.print(f"  [red]Erro:[/] {e}")
 
 
-def modulo_configuracoes(agente: "AgenteIA") -> None:  # type: ignore[name-defined]
+def modulo_configuracoes(agente: "AgenteIA",  # type: ignore[name-defined]
+                          furtivo=None) -> None:
     """Módulo 9 — Configurações."""
     console.print(Panel("[bold red]◉ CONFIGURAÇÕES[/]", border_style="red"))
 
@@ -465,6 +506,8 @@ def modulo_configuracoes(agente: "AgenteIA") -> None:  # type: ignore[name-defin
         timeout_atual = cfg.get("timeout", 10)
         delay_atual = cfg.get("delay", 1)
         threads_atual = cfg.get("threads_range", 3)
+        furtivo_status = "[yellow]ATIVO[/]" if (furtivo and furtivo.ativo) else "[dim]inativo[/]"
+        proxy_furtivo = cfg.get("proxy_furtivo", "não configurado")
 
         console.print(Panel(
             "\n".join([
@@ -473,7 +516,9 @@ def modulo_configuracoes(agente: "AgenteIA") -> None:  # type: ignore[name-defin
                 f"  [3] Timeout padrão    [dim]{timeout_atual}s[/]",
                 f"  [4] Delay requests    [dim]{delay_atual}s[/]",
                 f"  [5] Threads range     [dim]{threads_atual}[/]",
-                "  [6] Salvar e sair",
+                f"  [6] Proxy furtivo     [dim]{proxy_furtivo}[/]",
+                f"  [7] Modo Furtivo      {furtivo_status}",
+                "  [8] Salvar e sair",
                 "  [0] Voltar sem salvar",
             ]),
             title="Configurações",
@@ -496,12 +541,34 @@ def modulo_configuracoes(agente: "AgenteIA") -> None:  # type: ignore[name-defin
             cfg["proxy"] = Prompt.ask("  Proxy (ex: http://127.0.0.1:8080, Enter=limpar)",
                                        default="").strip() or None
         elif op == "3":
-            cfg["timeout"] = int(Prompt.ask("  Timeout (segundos)", default=str(timeout_atual)))
+            cfg["timeout"] = _pedir_inteiro("  Timeout (segundos)", default=timeout_atual,
+                                            min_val=1, max_val=300)
         elif op == "4":
-            cfg["delay"] = int(Prompt.ask("  Delay (segundos)", default=str(delay_atual)))
+            cfg["delay"] = _pedir_inteiro("  Delay (segundos)", default=delay_atual,
+                                          min_val=0, max_val=60)
         elif op == "5":
-            cfg["threads_range"] = int(Prompt.ask("  Threads para range", default=str(threads_atual)))
+            cfg["threads_range"] = _pedir_inteiro("  Threads para range", default=threads_atual,
+                                                  min_val=1, max_val=20)
         elif op == "6":
+            novo_proxy = Prompt.ask(
+                "  Proxy furtivo [dim](ex: http://127.0.0.1:8080 ou socks5://..., Enter=limpar)[/]",
+                default="",
+            ).strip()
+            cfg["proxy_furtivo"] = novo_proxy or None
+            if furtivo is not None:
+                furtivo.proxy = novo_proxy or None
+            console.print(f"  [green]✓ Proxy furtivo {'configurado' if novo_proxy else 'removido'}.[/]")
+        elif op == "7":
+            if furtivo is not None:
+                if furtivo.ativo:
+                    furtivo.desativar()
+                    console.print("  [dim]Modo furtivo desativado.[/]")
+                else:
+                    furtivo.ativar()
+                    console.print("  [yellow]Modo furtivo ativado.[/]")
+            else:
+                console.print("  [dim]Modo furtivo não disponível nesta sessão.[/]")
+        elif op == "8":
             agente.salvar_config_completa(cfg)
             console.print("  [green]✓ Configurações salvas em ~/.vlad/config.json[/]")
             break
@@ -602,10 +669,11 @@ def processar_url_direta(url: str, agente: "AgenteIA") -> None:  # type: ignore[
 
 # ─────────────────────────── LOOP PRINCIPAL ──────────────────────────────────
 
-def loop_principal(agente) -> None:  # type: ignore
+def loop_principal(agente, furtivo=None, conhecimento=None) -> None:  # type: ignore
     """Loop interativo principal do framework."""
     ia_ok = agente.disponivel()
-    exibir_menu_principal(ia_ok)
+    furtivo_ativo = furtivo.ativo if furtivo else False
+    exibir_menu_principal(ia_ok, furtivo_ativo)
 
     while True:
         try:
@@ -619,16 +687,58 @@ def loop_principal(agente) -> None:  # type: ignore
         if not entrada:
             continue
 
+        entrada_lower = entrada.lower()
+
         # Sair
-        if entrada.lower() in ("q", "quit", "exit", "sair"):
+        if entrada_lower in ("q", "quit", "exit", "sair"):
             console.print("\n  [bold red]Vlad Volkov desconectado.[/]")
             break
+
+        # [A] — Auto-update
+        if entrada_lower == "a":
+            try:
+                from core.atualizador import Atualizador
+                atualizador = Atualizador()
+                atualizador.exibir_status()
+                info = atualizador.verificar_atualizacao()
+                if info.get("ok") and not info.get("atualizado"):
+                    if Confirm.ask(
+                        f"  Há {info.get('commits_novos', '?')} commit(s) novo(s). Atualizar agora?",
+                        default=True,
+                    ):
+                        ok = atualizador.atualizar()
+                        if ok:
+                            console.print("  [green]✓ Vlad atualizado! Reinicie para aplicar as mudanças.[/]")
+                        else:
+                            console.print("  [red]✗ Atualização falhou. Verifique os logs acima.[/]")
+                elif info.get("atualizado"):
+                    console.print("  [dim]Vlad já está na versão mais recente.[/]")
+            except KeyboardInterrupt:
+                console.print("\n  [dim]Atualização cancelada.[/]")
+            except Exception as e:
+                console.print(f"  [red]Erro ao atualizar:[/] {e}")
+            exibir_menu_principal(agente.disponivel(), furtivo.ativo if furtivo else False)
+            continue
+
+        # [F] — Toggle modo furtivo
+        if entrada_lower == "f":
+            if furtivo is not None:
+                if furtivo.ativo:
+                    furtivo.desativar()
+                    console.print("  [dim]Modo furtivo desativado.[/]")
+                else:
+                    furtivo.ativar()
+                    console.print("  [yellow]⚠  Modo furtivo ativado — delays aleatórios, UA rotation.[/]")
+            else:
+                console.print("  [dim]Modo furtivo não disponível nesta sessão.[/]")
+            exibir_menu_principal(agente.disponivel(), furtivo.ativo if furtivo else False)
+            continue
 
         # URL direta
         if entrada.startswith(("http://", "https://", "www.")):
             url = entrada if entrada.startswith("http") else "http://" + entrada
             processar_url_direta(url, agente)
-            exibir_menu_principal(agente.disponivel())
+            exibir_menu_principal(agente.disponivel(), furtivo.ativo if furtivo else False)
             continue
 
         # Navegação por número
@@ -643,7 +753,7 @@ def loop_principal(agente) -> None:  # type: ignore
                     "6": modulo_subdominios,
                     "7": modulo_range,
                     "8": modulo_relatorios,
-                    "9": lambda: modulo_configuracoes(agente),
+                    "9": lambda: modulo_configuracoes(agente, furtivo),
                     "0": lambda: modulo_chat_ia(agente),
                 }[entrada]
                 acao()
@@ -652,7 +762,7 @@ def loop_principal(agente) -> None:  # type: ignore
             except Exception as e:
                 console.print(f"\n  [red]Erro no módulo:[/] {e}")
 
-            exibir_menu_principal(agente.disponivel())
+            exibir_menu_principal(agente.disponivel(), furtivo.ativo if furtivo else False)
             continue
 
         # Texto livre → Vlad IA
@@ -673,7 +783,7 @@ def loop_principal(agente) -> None:  # type: ignore
                 f"  [dim]Ou use um número do menu (1-9, 0).[/]"
             )
 
-        exibir_menu_principal(agente.disponivel())
+        exibir_menu_principal(agente.disponivel(), furtivo.ativo if furtivo else False)
 
 
 # ─────────────────────────── MAIN ────────────────────────────────────────────
@@ -703,8 +813,30 @@ def main() -> None:
     from core.agente_ia import AgenteIA
     agente = AgenteIA()
 
+    # Inicializa base de conhecimento e injeta no agente IA
+    conhecimento = None
+    try:
+        from core.conhecimento import BaseConhecimento
+        conhecimento = BaseConhecimento()
+        agente.set_conhecimento(conhecimento)
+    except Exception:
+        pass  # Conhecimento é opcional; framework funciona sem ele
+
+    # Inicializa modo furtivo
+    furtivo = None
+    try:
+        from core.modo_furtivo import ModoFurtivo
+        furtivo = ModoFurtivo()
+        # Aplica proxy furtivo da configuração, se houver
+        cfg_proxy = agente.carregar_config_completa().get("proxy_furtivo")
+        if cfg_proxy:
+            furtivo.proxy = cfg_proxy
+    except Exception:
+        pass  # Modo furtivo é opcional; framework funciona sem ele
+
     # Modo não-interativo: --alvo ou --lista
     if args.alvo:
+        agente.set_alvo(args.alvo)
         processar_url_direta(args.alvo, agente)
         return
 
@@ -727,7 +859,7 @@ def main() -> None:
         return
 
     # Modo interativo
-    loop_principal(agente)
+    loop_principal(agente, furtivo=furtivo, conhecimento=conhecimento)
 
 
 if __name__ == "__main__":
