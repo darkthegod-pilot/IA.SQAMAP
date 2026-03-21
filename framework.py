@@ -1,0 +1,734 @@
+#!/usr/bin/env python3
+# framework.py
+# Vlad Volkov v2.1 — Framework Interativo de Pentest Web
+#
+# USO: python framework.py [--alvo URL] [--lista arquivo.txt] [--modulo N]
+#
+# - Número (1-9, 0) → navega para módulo
+# - URL (http://...) → scan rápido com seleção de modo
+# - Texto livre → Chat com Vlad IA (GPT)
+# - q → sair
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Prompt, Confirm
+from rich.rule import Rule
+from rich.table import Table
+from rich.text import Text
+from rich import box
+
+# ── Ajusta path para imports relativos ───────────────────────────────────────
+sys.path.insert(0, str(Path(__file__).parent))
+
+console = Console()
+
+VERSAO = "2.1.0"
+
+BANNER_ART = r"""
+ __   ____      _      ____     __   ___   __    __ ___   __  _  __
+ \ \ / /\ \    / /\   |  _ \   \ \ / / \ |  \  / /|   | |  )| |/ /
+  \ V /  \ \/\/ /  \  | | | \   \ V / | ||   \/  || | |  |_/ |   /
+   \_/    \_/\_/_/\_\  |_| |_/    \_/  |_||_|\__/ |_|_| |_|  |_|\_\
+"""
+
+
+def exibir_banner() -> None:
+    console.print(f"[bold red]{BANNER_ART}[/]")
+    console.print(Panel(
+        f"[bold white]VLAD VOLKOV[/]  [dim]v{VERSAO}[/]  [bold red]— Framework de Pentest Web[/]\n"
+        "[dim]Uso autorizado apenas para testes legais e ambientes com permissão.[/]",
+        box=box.DOUBLE_EDGE,
+        border_style="red",
+        padding=(0, 2),
+    ))
+
+
+def exibir_menu_principal(ia_disponivel: bool = False) -> None:
+    ia_status = "[green]✓ IA online[/]" if ia_disponivel else "[dim]○ IA offline (config em [9])[/]"
+
+    console.print()
+    console.print(Panel(
+        "\n".join([
+            "[bold red]  [1][/]  🔥  Scan Completo Automático  [dim](SQLi + Web + Enum + Subs)[/]",
+            "[bold red]  [2][/]  💉  SQLMap — SQL Injection    [dim](auto / semi-auto / manual)[/]",
+            "[bold red]  [3][/]  🕷   Scanner Web              [dim](XSS / LFI / SSRF / CMD / Auth)[/]",
+            "[bold red]  [4][/]  🛡   WAF + Tampers            [dim](detectar WAF e selecionar tampers)[/]",
+            "[bold red]  [5][/]  📂  Enumeração Web            [dim](dirs / tecnologias / robots / headers)[/]",
+            "[bold red]  [6][/]  🌐  Subdominios               [dim](enumerar via DNS)[/]",
+            "[bold red]  [7][/]  📋  Range de Sites            [dim](lista / arquivo / range de IP)[/]",
+            "[bold red]  [8][/]  📊  Relatórios                [dim](ver e exportar)[/]",
+            "[bold red]  [9][/]  ⚙   Configurações             [dim](API key, proxy, threads...)[/]",
+            f"[bold red]  [0][/]  🤖  Chat com Vlad IA          {ia_status}",
+            "[bold red]  [q][/]  ✕   Sair",
+        ]),
+        title="[bold]MENU PRINCIPAL[/]",
+        box=box.ROUNDED,
+        border_style="red",
+        padding=(0, 2),
+    ))
+    console.print()
+
+
+# ─────────────────────────── MÓDULOS ─────────────────────────────────────────
+
+def modulo_scan_completo() -> None:
+    """Módulo 1 — Scan completo automático."""
+    console.print(Panel("[bold red]◉ SCAN COMPLETO AUTOMÁTICO[/]", border_style="red"))
+
+    url = Prompt.ask("  Alvo [dim](URL ou IP)[/]").strip()
+    if not url:
+        return
+
+    console.print()
+    console.print("  Módulos a executar:")
+    console.print("    [dim][a][/] Todos  [dim][s][/] Selecionar individualmente")
+    escolha = Prompt.ask("  Escolha", default="a").strip().lower()
+
+    modulos_selecionados = None
+    if escolha == "s":
+        disponiveis = {
+            "1": ("waf", "WAF Detection"),
+            "2": ("enum_web", "Enumeração Web"),
+            "3": ("subdominios", "Subdominios"),
+            "4": ("sqli", "SQL Injection"),
+            "5": ("xss", "XSS"),
+            "6": ("lfi", "LFI"),
+            "7": ("traversal", "Directory Traversal"),
+            "8": ("ssrf", "SSRF"),
+            "9": ("cmd", "Command Injection"),
+            "0": ("auth", "Auth Bypass"),
+        }
+        console.print()
+        for k, (_, nome) in disponiveis.items():
+            console.print(f"    [{k}] {nome}")
+        nums = Prompt.ask("  Números separados por vírgula").strip()
+        modulos_selecionados = []
+        for n in nums.split(","):
+            n = n.strip()
+            if n in disponiveis:
+                modulos_selecionados.append(disponiveis[n][0])
+
+    from modulos.scanner_completo import ScannerCompleto
+    scanner = ScannerCompleto(verboso=True)
+    scanner.escanear_site(url, modulos=modulos_selecionados)
+
+
+def modulo_sqlmap() -> None:
+    """Módulo 2 — SQLMap."""
+    console.print(Panel("[bold red]◉ SQLMAP — SQL INJECTION[/]", border_style="red"))
+
+    url = Prompt.ask("  Alvo [dim](URL com parâmetros, ex: http://site.com/?id=1)[/]").strip()
+    if not url:
+        return
+
+    console.print()
+    console.print("  Modo:")
+    console.print("    [1] Automático — detecta WAF, escolhe técnica, faz dump completo")
+    console.print("    [2] Semi-auto  — confirma cada etapa antes de avançar")
+    console.print("    [3] Manual     — monta o comando e exibe para copiar")
+    console.print("    [4] Configuração avançada (nivel, risco, tampers, DBMS...)")
+
+    modo = Prompt.ask("  Modo", default="1").strip()
+
+    if modo == "1":
+        _sqlmap_automatico(url)
+    elif modo == "2":
+        _sqlmap_semi_auto(url)
+    elif modo == "3":
+        _sqlmap_manual(url)
+    elif modo == "4":
+        _sqlmap_avancado(url)
+
+
+def _sqlmap_automatico(url: str) -> None:
+    from core.engine import VladEngine
+    engine = VladEngine(verboso=True)
+    relatorio = engine.escanear_automatico(url, opcoes={"modo": "padrao", "enum_completo": True})
+    if relatorio:
+        relatorio.exibir_resumo_terminal()
+
+
+def _sqlmap_semi_auto(url: str) -> None:
+    console.print("\n  [bold cyan]Modo Semi-Automático[/]")
+    from core.engine import VladEngine
+    from utils import DetectorWAF, SeletorTamper
+
+    engine = VladEngine(verboso=True)
+
+    # Etapa 1: WAF
+    if Confirm.ask("  [1/4] Detectar WAF?", default=True):
+        engine.detectar_waf(url)
+
+    # Etapa 2: Técnica
+    waf = Prompt.ask("  [2/4] WAF detectado (ou vazio)", default="").strip() or None
+    dbms = Prompt.ask("  [3/4] DBMS suspeito (mysql/mssql/postgresql/oracle ou vazio)", default="").strip() or "all"
+
+    if waf and Confirm.ask(f"  Selecionar tampers para {waf}?", default=True):
+        engine.selecionar_tampers(waf, dbms)
+
+    # Etapa 4: Scan
+    if Confirm.ask("  [4/4] Executar SQLMap agora?", default=True):
+        opcoes = {"modo": "padrao", "enum_completo": True}
+        if waf:
+            opcoes["waf"] = waf
+        if dbms and dbms != "all":
+            opcoes["dbms"] = dbms
+        relatorio = engine.scan_sqlmap_direto(url, opcoes=opcoes)
+        if relatorio:
+            relatorio.exibir_resumo_terminal()
+
+
+def _sqlmap_manual(url: str) -> None:
+    from utils import ConstrutorComando, DetectorWAF, SeletorTamper, ConselheiroTecnica
+
+    console.print("\n  [bold cyan]Construtor de Comando SQLMap[/]")
+    waf = Prompt.ask("  WAF (cloudflare/modsecurity/imperva/vazio)", default="").strip()
+    dbms = Prompt.ask("  DBMS (mysql/mssql/postgresql/oracle/vazio)", default="").strip() or "all"
+    modo = Prompt.ask("  Perfil (rapido/padrao/profundo/furtivo/agressivo)", default="padrao").strip()
+
+    tampers = ""
+    if waf:
+        seletor = SeletorTamper()
+        lista = seletor.selecionar(waf, dbms)
+        tampers = ",".join(lista) if lista else ""
+
+    construtor = ConstrutorComando()
+    cmd = construtor.construir_cmd_completo(url, dbms if dbms != "all" else None, tampers, "output/")
+
+    console.print()
+    console.print(Panel(
+        f"[bold green]{cmd}[/]",
+        title="Comando SQLMap",
+        border_style="green",
+        box=box.ROUNDED,
+    ))
+    console.print("  [dim]Copie e execute o comando acima.[/]")
+
+
+def _sqlmap_avancado(url: str) -> None:
+    console.print("\n  [bold cyan]Configuração Avançada[/]")
+    nivel = Prompt.ask("  Nível [1-5]", default="3").strip()
+    risco = Prompt.ask("  Risco [1-3]", default="2").strip()
+    threads = Prompt.ask("  Threads", default="3").strip()
+    delay = Prompt.ask("  Delay (segundos)", default="0").strip()
+    proxy = Prompt.ask("  Proxy (vazio = sem proxy)", default="").strip()
+    cookie = Prompt.ask("  Cookie (vazio = sem cookie)", default="").strip()
+    enum = Prompt.ask(
+        "  Enumerar [bancos/tabelas/colunas/dump/usuarios/senhas]",
+        default="bancos",
+    ).strip()
+
+    cmd_parts = [f"sqlmap -u '{url}'"]
+    cmd_parts.append(f"--level={nivel} --risk={risco} --threads={threads}")
+    if delay and delay != "0":
+        cmd_parts.append(f"--delay={delay}")
+    if proxy:
+        cmd_parts.append(f"--proxy={proxy}")
+    if cookie:
+        cmd_parts.append(f"--cookie='{cookie}'")
+    if enum:
+        for e in enum.split(","):
+            e = e.strip()
+            if e == "bancos":
+                cmd_parts.append("--dbs")
+            elif e == "tabelas":
+                cmd_parts.append("--tables")
+            elif e == "colunas":
+                cmd_parts.append("--columns")
+            elif e == "dump":
+                cmd_parts.append("--dump")
+            elif e == "usuarios":
+                cmd_parts.append("--users")
+            elif e == "senhas":
+                cmd_parts.append("--passwords")
+
+    cmd = " ".join(cmd_parts)
+    console.print()
+    console.print(Panel(f"[bold green]{cmd}[/]", title="Comando SQLMap Avançado",
+                        border_style="green", box=box.ROUNDED))
+
+
+def modulo_scanner_web() -> None:
+    """Módulo 3 — Scanner Web."""
+    console.print(Panel("[bold red]◉ SCANNER WEB[/]", border_style="red"))
+
+    url = Prompt.ask("  Alvo").strip()
+    if not url:
+        return
+
+    console.print()
+    console.print("  Tipos de scan:")
+    console.print("    [1] Todos")
+    console.print("    [2] XSS (Cross-Site Scripting)")
+    console.print("    [3] LFI (Local File Inclusion)")
+    console.print("    [4] SSRF (Server-Side Request Forgery)")
+    console.print("    [5] Command Injection")
+    console.print("    [6] Directory Traversal")
+    console.print("    [7] Auth Bypass")
+
+    tipo = Prompt.ask("  Tipo", default="1").strip()
+
+    mapa = {
+        "2": ["xss"],
+        "3": ["lfi"],
+        "4": ["ssrf"],
+        "5": ["cmd"],
+        "6": ["traversal"],
+        "7": ["auth"],
+    }
+
+    tipos = mapa.get(tipo, ["xss", "lfi", "ssrf", "cmd", "traversal", "auth"])
+
+    from core.engine import VladEngine
+    engine = VladEngine(verboso=True)
+    relatorio = engine.testar_web(url, tipos=tipos)
+    if relatorio:
+        relatorio.exibir_resumo_terminal()
+
+
+def modulo_waf() -> None:
+    """Módulo 4 — WAF + Tampers."""
+    console.print(Panel("[bold red]◉ WAF + TAMPERS[/]", border_style="red"))
+
+    url = Prompt.ask("  Alvo").strip()
+    if not url:
+        return
+
+    from core.engine import VladEngine
+    engine = VladEngine(verboso=True)
+    engine.detectar_waf(url)
+
+    console.print()
+    if Confirm.ask("  Selecionar tampers recomendados?", default=True):
+        waf = Prompt.ask("  WAF detectado (cloudflare/modsecurity/imperva/f5/akamai)").strip()
+        dbms = Prompt.ask("  DBMS (mysql/mssql/postgresql/oracle/all)", default="all").strip()
+        nivel = Prompt.ask("  Nível (leve/padrao/pesado)", default="padrao").strip()
+        engine.selecionar_tampers(waf, dbms, nivel)
+
+
+def modulo_enum_web() -> None:
+    """Módulo 5 — Enumeração Web."""
+    console.print(Panel("[bold red]◉ ENUMERAÇÃO WEB[/]", border_style="red"))
+
+    url = Prompt.ask("  Alvo").strip()
+    if not url:
+        return
+
+    from modulos.enumerador_web import EnumeradorWeb
+    enum = EnumeradorWeb()
+    enum.escanear(url, verboso=True)
+    enum.exibir_resultado()
+
+
+def modulo_subdominios() -> None:
+    """Módulo 6 — Subdominios."""
+    console.print(Panel("[bold red]◉ ENUMERAÇÃO DE SUBDOMINIOS[/]", border_style="red"))
+
+    dominio = Prompt.ask("  Domínio [dim](ex: exemplo.com ou http://exemplo.com)[/]").strip()
+    if not dominio:
+        return
+
+    threads = int(Prompt.ask("  Threads", default="30").strip())
+
+    from modulos.enum_subdominios import EnumeradorSubdominios
+    enum = EnumeradorSubdominios(threads=threads)
+    enum.escanear(dominio, verboso=True)
+    enum.exibir_resultado()
+
+
+def modulo_range() -> None:
+    """Módulo 7 — Range de Sites."""
+    console.print(Panel("[bold red]◉ RANGE DE SITES[/]", border_style="red"))
+
+    console.print()
+    console.print("  Origem dos alvos:")
+    console.print("    [1] Digitar lista separada por vírgula")
+    console.print("    [2] Arquivo .txt (um por linha)")
+    console.print("    [3] Range de IP (ex: 192.168.1.1-254 ou 192.168.1.0/24)")
+
+    origem = Prompt.ask("  Origem", default="1").strip()
+
+    from modulos.scanner_completo import ScannerCompleto
+    scanner = ScannerCompleto(verboso=False)
+    alvos: list[str] = []
+
+    if origem == "1":
+        lista_str = Prompt.ask("  URLs separadas por vírgula").strip()
+        alvos = [u.strip() for u in lista_str.split(",") if u.strip()]
+    elif origem == "2":
+        arquivo = Prompt.ask("  Caminho do arquivo").strip()
+        alvos = scanner.carregar_alvos_arquivo(arquivo)
+        console.print(f"  [dim]{len(alvos)} alvos carregados.[/]")
+    elif origem == "3":
+        range_ip = Prompt.ask("  Range de IP").strip()
+        porta = int(Prompt.ask("  Porta", default="80").strip())
+        alvos = scanner.carregar_alvos_range_ip(range_ip, porta)
+        console.print(f"  [dim]{len(alvos)} IPs gerados.[/]")
+
+    if not alvos:
+        console.print("  [red]Nenhum alvo válido.[/]")
+        return
+
+    console.print()
+    console.print("  Módulos:")
+    console.print("    [1] Scan completo (todos)")
+    console.print("    [2] Só SQLi")
+    console.print("    [3] Só Web (XSS/LFI/SSRF...)")
+    console.print("    [4] Só Enumeração")
+    modulo_escolha = Prompt.ask("  Módulo", default="1").strip()
+
+    mapa_modulos = {
+        "1": None,
+        "2": ["sqli"],
+        "3": ["xss", "lfi", "ssrf", "cmd", "traversal", "auth"],
+        "4": ["enum_web", "subdominios"],
+    }
+    modulos_range = mapa_modulos.get(modulo_escolha)
+
+    threads = int(Prompt.ask("  Threads simultâneas", default="3").strip())
+
+    scanner.escanear_range(alvos, modulos=modulos_range, threads=threads)
+
+
+def modulo_relatorios() -> None:
+    """Módulo 8 — Relatórios."""
+    console.print(Panel("[bold red]◉ RELATÓRIOS[/]", border_style="red"))
+
+    dir_rel = Path("relatorios")
+    if not dir_rel.exists():
+        console.print("  [dim]Nenhum relatório encontrado.[/]")
+        return
+
+    arquivos = sorted(dir_rel.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if not arquivos:
+        console.print("  [dim]Nenhum relatório encontrado em relatorios/.[/]")
+        return
+
+    tabela = Table(title="Relatórios Disponíveis", box=box.ROUNDED, border_style="cyan")
+    tabela.add_column("#", style="dim", justify="right")
+    tabela.add_column("Arquivo", style="cyan")
+    tabela.add_column("Tamanho", justify="right")
+    tabela.add_column("Data", style="dim")
+
+    for i, f in enumerate(arquivos[:20], 1):
+        stat = f.stat()
+        data = datetime.fromtimestamp(stat.st_mtime).strftime("%d/%m/%Y %H:%M")
+        tabela.add_row(str(i), f.name, f"{stat.st_size // 1024}KB", data)
+
+    console.print(tabela)
+
+    num = Prompt.ask(
+        "\n  Digite o número para ver o relatório (Enter para voltar)", default=""
+    ).strip()
+    if not num:
+        return
+
+    try:
+        idx = int(num) - 1
+        arquivo = arquivos[idx]
+        dados = json.loads(arquivo.read_text())
+
+        console.print()
+        console.print(Panel(
+            json.dumps(dados, indent=2, ensure_ascii=False)[:3000],
+            title=f"[bold]{arquivo.name}[/]",
+            border_style="cyan",
+            box=box.ROUNDED,
+        ))
+    except (ValueError, IndexError):
+        console.print("  [red]Número inválido.[/]")
+    except Exception as e:
+        console.print(f"  [red]Erro:[/] {e}")
+
+
+def modulo_configuracoes(agente: "AgenteIA") -> None:  # type: ignore[name-defined]
+    """Módulo 9 — Configurações."""
+    console.print(Panel("[bold red]◉ CONFIGURAÇÕES[/]", border_style="red"))
+
+    cfg = agente.carregar_config_completa()
+
+    while True:
+        console.print()
+        api_key_status = agente.chave_mascarada()
+        proxy_atual = cfg.get("proxy", "não configurado")
+        timeout_atual = cfg.get("timeout", 10)
+        delay_atual = cfg.get("delay", 1)
+        threads_atual = cfg.get("threads_range", 3)
+
+        console.print(Panel(
+            "\n".join([
+                f"  [1] API Key OpenAI    [dim]{api_key_status}[/]",
+                f"  [2] Proxy             [dim]{proxy_atual}[/]",
+                f"  [3] Timeout padrão    [dim]{timeout_atual}s[/]",
+                f"  [4] Delay requests    [dim]{delay_atual}s[/]",
+                f"  [5] Threads range     [dim]{threads_atual}[/]",
+                "  [6] Salvar e sair",
+                "  [0] Voltar sem salvar",
+            ]),
+            title="Configurações",
+            box=box.ROUNDED,
+            border_style="yellow",
+        ))
+
+        op = Prompt.ask("  Opção", default="0").strip()
+
+        if op == "1":
+            nova_key = Prompt.ask("  Nova API Key OpenAI [dim](Enter para cancelar)[/]",
+                                  default="", password=True).strip()
+            if nova_key:
+                if agente.configurar_chave(nova_key):
+                    cfg["openai_api_key"] = nova_key
+                    console.print("  [green]✓ API key configurada![/]")
+                else:
+                    console.print("  [red]Erro ao salvar a key.[/]")
+        elif op == "2":
+            cfg["proxy"] = Prompt.ask("  Proxy (ex: http://127.0.0.1:8080, Enter=limpar)",
+                                       default="").strip() or None
+        elif op == "3":
+            cfg["timeout"] = int(Prompt.ask("  Timeout (segundos)", default=str(timeout_atual)))
+        elif op == "4":
+            cfg["delay"] = int(Prompt.ask("  Delay (segundos)", default=str(delay_atual)))
+        elif op == "5":
+            cfg["threads_range"] = int(Prompt.ask("  Threads para range", default=str(threads_atual)))
+        elif op == "6":
+            agente.salvar_config_completa(cfg)
+            console.print("  [green]✓ Configurações salvas em ~/.vlad/config.json[/]")
+            break
+        elif op == "0":
+            break
+
+
+def modulo_chat_ia(agente: "AgenteIA") -> None:  # type: ignore[name-defined]
+    """Módulo 0 — Chat com Vlad IA."""
+    if not agente.disponivel():
+        console.print(Panel(
+            "[yellow]⚠  IA não configurada.[/]\n\n"
+            "Configure a API key via:\n"
+            "  • Menu [9] Configurações → [1] API Key OpenAI\n"
+            "  • Ou: export OPENAI_API_KEY=sk-proj-...",
+            title="Chat com Vlad IA",
+            border_style="yellow",
+        ))
+        return
+
+    console.print(Panel(
+        "[bold cyan]Chat com Vlad IA[/]  [dim](GPT-4o-mini)[/]\n"
+        "[dim]Digite 'limpar' para novo contexto, 'sair' para voltar ao menu.[/]",
+        border_style="cyan",
+    ))
+
+    while True:
+        console.print()
+        try:
+            msg = Prompt.ask("[bold cyan]Você[/]").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+
+        if not msg:
+            continue
+        if msg.lower() in ("sair", "voltar", "exit", "quit", "q"):
+            break
+        if msg.lower() in ("limpar", "clear", "novo"):
+            agente.limpar_historico()
+            console.print("  [dim]Histórico limpo.[/]")
+            continue
+
+        with console.status("[dim]Vlad está pensando...[/]"):
+            resposta = agente.chat(msg)
+
+        console.print()
+        console.print(Panel(
+            resposta,
+            title="[bold red]Vlad[/]",
+            border_style="red",
+            box=box.ROUNDED,
+        ))
+
+
+# ─────────────────────── PROCESSAMENTO RÁPIDO DE URL ─────────────────────────
+
+def processar_url_direta(url: str, agente: "AgenteIA") -> None:  # type: ignore[name-defined]
+    """Quando o usuário digita uma URL diretamente no prompt principal."""
+    console.print()
+    console.print(f"  [cyan]Alvo:[/] {url}")
+    console.print()
+    console.print("  O que deseja fazer?")
+    console.print("    [1] Scan Completo Automático (tudo)")
+    console.print("    [2] Só SQLMap (dump completo)")
+    console.print("    [3] Só Scanner Web (XSS/LFI/SSRF...)")
+    console.print("    [4] Só Enumeração (dirs/techs/robots)")
+    console.print("    [5] Perguntar ao Vlad IA o que fazer")
+
+    op = Prompt.ask("  Opção", default="1").strip()
+
+    if op == "1":
+        from modulos.scanner_completo import ScannerCompleto
+        ScannerCompleto(verboso=True).escanear_site(url)
+    elif op == "2":
+        _sqlmap_automatico(url)
+    elif op == "3":
+        from core.engine import VladEngine
+        engine = VladEngine(verboso=True)
+        relatorio = engine.testar_web(url)
+        if relatorio:
+            relatorio.exibir_resumo_terminal()
+    elif op == "4":
+        from modulos.enumerador_web import EnumeradorWeb
+        enum = EnumeradorWeb()
+        enum.escanear(url, verboso=True)
+        enum.exibir_resultado()
+    elif op == "5":
+        if agente.disponivel():
+            with console.status("[dim]Vlad analisando...[/]"):
+                resposta = agente.chat(
+                    f"Preciso testar o site: {url}. Por onde devo começar e qual o comando mais adequado?"
+                )
+            console.print()
+            console.print(Panel(resposta, title="[bold red]Vlad[/]", border_style="red"))
+        else:
+            console.print("  [yellow]IA não configurada. Configure em [9] Configurações.[/]")
+
+
+# ─────────────────────────── LOOP PRINCIPAL ──────────────────────────────────
+
+def loop_principal(agente) -> None:  # type: ignore
+    """Loop interativo principal do framework."""
+    ia_ok = agente.disponivel()
+    exibir_menu_principal(ia_ok)
+
+    while True:
+        try:
+            entrada = Prompt.ask(
+                "[bold red]vlad>[/]"
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n  [dim]Saindo...[/]")
+            break
+
+        if not entrada:
+            continue
+
+        # Sair
+        if entrada.lower() in ("q", "quit", "exit", "sair"):
+            console.print("\n  [bold red]Vlad Volkov desconectado.[/]")
+            break
+
+        # URL direta
+        if entrada.startswith(("http://", "https://", "www.")):
+            url = entrada if entrada.startswith("http") else "http://" + entrada
+            processar_url_direta(url, agente)
+            exibir_menu_principal(agente.disponivel())
+            continue
+
+        # Navegação por número
+        if entrada in ("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"):
+            try:
+                acao = {
+                    "1": modulo_scan_completo,
+                    "2": modulo_sqlmap,
+                    "3": modulo_scanner_web,
+                    "4": modulo_waf,
+                    "5": modulo_enum_web,
+                    "6": modulo_subdominios,
+                    "7": modulo_range,
+                    "8": modulo_relatorios,
+                    "9": lambda: modulo_configuracoes(agente),
+                    "0": lambda: modulo_chat_ia(agente),
+                }[entrada]
+                acao()
+            except KeyboardInterrupt:
+                console.print("\n  [dim]Módulo interrompido.[/]")
+            except Exception as e:
+                console.print(f"\n  [red]Erro no módulo:[/] {e}")
+
+            exibir_menu_principal(agente.disponivel())
+            continue
+
+        # Texto livre → Vlad IA
+        if agente.disponivel():
+            with console.status("[dim]Vlad está pensando...[/]"):
+                resposta = agente.chat(entrada)
+            console.print()
+            console.print(Panel(
+                resposta,
+                title="[bold red]Vlad IA[/]",
+                border_style="red",
+                box=box.ROUNDED,
+            ))
+        else:
+            console.print(
+                "  [dim]Dica: Configure a IA via[/] [bold]menu [9][/] "
+                "[dim]para digitar em linguagem natural.[/]\n"
+                f"  [dim]Ou use um número do menu (1-9, 0).[/]"
+            )
+
+        exibir_menu_principal(agente.disponivel())
+
+
+# ─────────────────────────── MAIN ────────────────────────────────────────────
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Vlad Volkov v2.1 — Framework Interativo de Pentest Web",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--alvo", metavar="URL",
+                        help="Alvo direto (pula menu, executa scan)")
+    parser.add_argument("--lista", metavar="ARQUIVO",
+                        help="Arquivo com lista de URLs (uma por linha)")
+    parser.add_argument("--modulo", metavar="N", default="1",
+                        help="Módulo a usar no range (1=completo, 2=sqli, 3=web, 4=enum)")
+    parser.add_argument("--threads", type=int, default=3,
+                        help="Threads para range de sites (padrão: 3)")
+    parser.add_argument("--silencioso", action="store_true",
+                        help="Sem banner, menos output")
+
+    args = parser.parse_args()
+
+    if not args.silencioso:
+        exibir_banner()
+
+    # Inicializa agente IA
+    from core.agente_ia import AgenteIA
+    agente = AgenteIA()
+
+    # Modo não-interativo: --alvo ou --lista
+    if args.alvo:
+        processar_url_direta(args.alvo, agente)
+        return
+
+    if args.lista:
+        from modulos.scanner_completo import ScannerCompleto
+        scanner = ScannerCompleto(verboso=True)
+        alvos = scanner.carregar_alvos_arquivo(args.lista)
+        if not alvos:
+            console.print("[red]Nenhum alvo no arquivo.[/]")
+            return
+
+        mapa = {
+            "1": None,
+            "2": ["sqli"],
+            "3": ["xss", "lfi", "ssrf", "cmd", "traversal", "auth"],
+            "4": ["enum_web", "subdominios"],
+        }
+        modulos = mapa.get(args.modulo)
+        scanner.escanear_range(alvos, modulos=modulos, threads=args.threads)
+        return
+
+    # Modo interativo
+    loop_principal(agente)
+
+
+if __name__ == "__main__":
+    main()

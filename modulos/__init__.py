@@ -7,6 +7,9 @@ from .ssrf_scanner import ScannerSSRF
 from .injecao_cmd import ScannerInjecaoCmd
 from .traversal_scanner import ScannerTraversal
 from .bypass_auth import ScannerBypassAuth
+from .enumerador_web import EnumeradorWeb
+from .enum_subdominios import EnumeradorSubdominios
+from .scanner_completo import ScannerCompleto
 
 __all__ = [
     'ScannerXSS',
@@ -15,4 +18,7 @@ __all__ = [
     'ScannerInjecaoCmd',
     'ScannerTraversal',
     'ScannerBypassAuth',
+    'EnumeradorWeb',
+    'EnumeradorSubdominios',
+    'ScannerCompleto',
 ]
