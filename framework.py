@@ -47,55 +47,76 @@ def _pedir_inteiro(prompt: str, default: int, min_val: int = 1,
             valor = int(raw)
             if min_val <= valor <= max_val:
                 return valor
-            console.print(f"  [yellow]⚠  Digite um número entre {min_val} e {max_val}.[/]")
+            console.print(f"  [yellow]⚠ Entre {min_val} e {max_val}.[/]")
         except ValueError:
-            console.print(f"  [yellow]⚠  '{raw}' não é um número válido.[/]")
+            console.print(f"  [yellow]⚠ '{raw}' não é número.[/]")
 
-BANNER_ART = r"""
- __   ____      _      ____     __   ___   __    __ ___   __  _  __
- \ \ / /\ \    / /\   |  _ \   \ \ / / \ |  \  / /|   | |  )| |/ /
-  \ V /  \ \/\/ /  \  | | | \   \ V / | ||   \/  || | |  |_/ |   /
-   \_/    \_/\_/_/\_\  |_| |_/    \_/  |_||_|\__/ |_|_| |_|  |_|\_\
-"""
 
+def _pedir_url(prompt: str = "  Alvo") -> Optional[str]:
+    """Retorna URL válida ou None se vazio (voltar)."""
+    raw = Prompt.ask(f"{prompt} [dim][Enter=voltar][/]", default="").strip()
+    if not raw:
+        return None
+    if not raw.startswith(("http://", "https://")):
+        raw = "http://" + raw
+    return raw
+
+
+def _pausar() -> None:
+    """Pausa antes de voltar ao menu — evita menu relâmpago no mobile."""
+    try:
+        Prompt.ask("\n  [dim]Enter para continuar...[/]", default="")
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
+def _selecionar(prompt: str, validas: list, default: str = "0") -> str:
+    """Prompt de seleção com validação. Retorna a opção escolhida."""
+    while True:
+        val = Prompt.ask(prompt, default=default).strip().lower()
+        if val in validas:
+            return val
+        console.print(f"  [yellow]⚠ Opções: {', '.join(validas)}[/]")
 
 def exibir_banner() -> None:
-    console.print(f"[bold red]{BANNER_ART}[/]")
     console.print(Panel(
-        f"[bold white]VLAD VOLKOV[/]  [dim]v{VERSAO}[/]  [bold red]— Framework de Pentest Web[/]\n"
-        "[dim]Uso autorizado apenas para testes legais e ambientes com permissão.[/]",
+        f"[bold red]VLAD VOLKOV[/]  [dim]v{VERSAO}[/]\n"
+        "[bold white]Framework de Pentest Web[/]\n"
+        "[dim]Apenas para uso autorizado.[/]",
         box=box.DOUBLE_EDGE,
         border_style="red",
-        padding=(0, 2),
+        padding=(0, 1),
+        expand=False,
     ))
 
 
 def exibir_menu_principal(ia_disponivel: bool = False,
                            furtivo_ativo: bool = False) -> None:
-    ia_status = "[green]✓ IA online[/]" if ia_disponivel else "[dim]○ IA offline (config em [9])[/]"
-    furtivo_str = "[yellow]⚠ FURTIVO[/]" if furtivo_ativo else "[dim]○ normal[/]"
+    ia_tag = "[green]IA✓[/]" if ia_disponivel else "[dim]IA✗[/]"
+    furtivo_tag = " [yellow]FURTIVO[/]" if furtivo_ativo else ""
 
     console.print()
     console.print(Panel(
         "\n".join([
-            "[bold red]  [1][/]  🔥  Scan Completo Automático  [dim](SQLi + Web + Enum + Subs)[/]",
-            "[bold red]  [2][/]  💉  SQLMap — SQL Injection    [dim](auto / semi-auto / manual)[/]",
-            "[bold red]  [3][/]  🕷   Scanner Web              [dim](XSS / LFI / SSRF / CMD / Auth)[/]",
-            "[bold red]  [4][/]  🛡   WAF + Tampers            [dim](detectar WAF e selecionar tampers)[/]",
-            "[bold red]  [5][/]  📂  Enumeração Web            [dim](dirs / tecnologias / robots / headers)[/]",
-            "[bold red]  [6][/]  🌐  Subdominios               [dim](enumerar via DNS)[/]",
-            "[bold red]  [7][/]  📋  Range de Sites            [dim](lista / arquivo / range de IP)[/]",
-            "[bold red]  [8][/]  📊  Relatórios                [dim](ver e exportar)[/]",
-            "[bold red]  [9][/]  ⚙   Configurações             [dim](API key, proxy, stealth...)[/]",
-            f"[bold red]  [0][/]  🤖  Chat com Vlad IA          {ia_status}",
-            f"[bold red]  [A][/]  ⬆   Atualizar Vlad            [dim](git pull automático)[/]",
-            f"[bold red]  [F][/]  👁   Modo Furtivo              {furtivo_str}",
-            "[bold red]  [q][/]  ✕   Sair",
+            "[bold red][1][/] Scan Completo",
+            "[bold red][2][/] SQLMap",
+            "[bold red][3][/] Scanner Web",
+            "[bold red][4][/] WAF + Tampers",
+            "[bold red][5][/] Enumeração Web",
+            "[bold red][6][/] Subdomínios",
+            "[bold red][7][/] Range de Sites",
+            "[bold red][8][/] Relatórios",
+            "[bold red][9][/] Configurações",
+            f"[bold red][0][/] Chat IA  {ia_tag}",
+            f"[bold red][A][/] Atualizar",
+            f"[bold red][F][/] Modo Furtivo{furtivo_tag}",
+            "[bold red][q][/] Sair",
         ]),
-        title="[bold]MENU PRINCIPAL[/]",
+        title="[bold]VLAD[/]",
         box=box.ROUNDED,
         border_style="red",
-        padding=(0, 2),
+        padding=(0, 1),
+        expand=False,
     ))
     console.print()
 
@@ -104,40 +125,47 @@ def exibir_menu_principal(ia_disponivel: bool = False,
 
 def modulo_scan_completo() -> None:
     """Módulo 1 — Scan completo automático."""
-    console.print(Panel("[bold red]◉ SCAN COMPLETO AUTOMÁTICO[/]", border_style="red"))
+    console.print(Panel("[bold red]◉ SCAN COMPLETO[/]", border_style="red", expand=False))
 
-    url = Prompt.ask("  Alvo [dim](URL ou IP)[/]").strip()
+    url = _pedir_url()
     if not url:
         return
 
     console.print()
-    console.print("  Módulos a executar:")
-    console.print("    [dim][a][/] Todos  [dim][s][/] Selecionar individualmente")
-    escolha = Prompt.ask("  Escolha", default="a").strip().lower()
+    console.print("  Módulos:")
+    console.print("    [a] Todos")
+    console.print("    [s] Selecionar")
+    console.print("    [0] Voltar")
+    escolha = _selecionar("  Escolha", ["a", "s", "0"], default="a")
+    if escolha == "0":
+        return
 
     modulos_selecionados = None
     if escolha == "s":
         disponiveis = {
-            "1": ("waf", "WAF Detection"),
-            "2": ("enum_web", "Enumeração Web"),
-            "3": ("subdominios", "Subdominios"),
-            "4": ("sqli", "SQL Injection"),
+            "1": ("waf", "WAF"),
+            "2": ("enum_web", "Enum Web"),
+            "3": ("subdominios", "Subdomínios"),
+            "4": ("sqli", "SQLi"),
             "5": ("xss", "XSS"),
             "6": ("lfi", "LFI"),
-            "7": ("traversal", "Directory Traversal"),
+            "7": ("traversal", "Traversal"),
             "8": ("ssrf", "SSRF"),
-            "9": ("cmd", "Command Injection"),
+            "9": ("cmd", "Cmd Inject"),
             "0": ("auth", "Auth Bypass"),
         }
         console.print()
         for k, (_, nome) in disponiveis.items():
             console.print(f"    [{k}] {nome}")
-        nums = Prompt.ask("  Números separados por vírgula").strip()
+        nums = Prompt.ask("  Números (ex: 1,3,5)", default="").strip()
         modulos_selecionados = []
         for n in nums.split(","):
             n = n.strip()
             if n in disponiveis:
                 modulos_selecionados.append(disponiveis[n][0])
+        if not modulos_selecionados:
+            console.print("  [yellow]Nenhum módulo selecionado.[/]")
+            return
 
     from modulos.scanner_completo import ScannerCompleto
     scanner = ScannerCompleto(verboso=True)
@@ -146,22 +174,25 @@ def modulo_scan_completo() -> None:
 
 def modulo_sqlmap() -> None:
     """Módulo 2 — SQLMap."""
-    console.print(Panel("[bold red]◉ SQLMAP — SQL INJECTION[/]", border_style="red"))
+    console.print(Panel("[bold red]◉ SQLMAP[/]", border_style="red", expand=False))
 
-    url = Prompt.ask("  Alvo [dim](URL com parâmetros, ex: http://site.com/?id=1)[/]").strip()
+    url = _pedir_url("  URL (ex: http://site.com/?id=1)")
     if not url:
         return
 
     console.print()
     console.print("  Modo:")
-    console.print("    [1] Automático — detecta WAF, escolhe técnica, faz dump completo")
-    console.print("    [2] Semi-auto  — confirma cada etapa antes de avançar")
-    console.print("    [3] Manual     — monta o comando e exibe para copiar")
-    console.print("    [4] Configuração avançada (nivel, risco, tampers, DBMS...)")
+    console.print("    [1] Automático")
+    console.print("    [2] Semi-auto")
+    console.print("    [3] Manual (só monta comando)")
+    console.print("    [4] Avançado")
+    console.print("    [0] Voltar")
 
-    modo = Prompt.ask("  Modo", default="1").strip()
+    modo = _selecionar("  Modo", ["1", "2", "3", "4", "0"], default="1")
 
-    if modo == "1":
+    if modo == "0":
+        return
+    elif modo == "1":
         _sqlmap_automatico(url)
     elif modo == "2":
         _sqlmap_semi_auto(url)
@@ -281,23 +312,26 @@ def _sqlmap_avancado(url: str) -> None:
 
 def modulo_scanner_web() -> None:
     """Módulo 3 — Scanner Web."""
-    console.print(Panel("[bold red]◉ SCANNER WEB[/]", border_style="red"))
+    console.print(Panel("[bold red]◉ SCANNER WEB[/]", border_style="red", expand=False))
 
-    url = Prompt.ask("  Alvo").strip()
+    url = _pedir_url()
     if not url:
         return
 
     console.print()
-    console.print("  Tipos de scan:")
+    console.print("  Tipo de scan:")
     console.print("    [1] Todos")
-    console.print("    [2] XSS (Cross-Site Scripting)")
-    console.print("    [3] LFI (Local File Inclusion)")
-    console.print("    [4] SSRF (Server-Side Request Forgery)")
-    console.print("    [5] Command Injection")
-    console.print("    [6] Directory Traversal")
+    console.print("    [2] XSS")
+    console.print("    [3] LFI")
+    console.print("    [4] SSRF")
+    console.print("    [5] Cmd Inject")
+    console.print("    [6] Traversal")
     console.print("    [7] Auth Bypass")
+    console.print("    [0] Voltar")
 
-    tipo = Prompt.ask("  Tipo", default="1").strip()
+    tipo = _selecionar("  Tipo", ["1","2","3","4","5","6","7","0"], default="1")
+    if tipo == "0":
+        return
 
     mapa = {
         "2": ["xss"],
@@ -307,7 +341,6 @@ def modulo_scanner_web() -> None:
         "6": ["traversal"],
         "7": ["auth"],
     }
-
     tipos = mapa.get(tipo, ["xss", "lfi", "ssrf", "cmd", "traversal", "auth"])
 
     from core.engine import VladEngine
@@ -319,9 +352,9 @@ def modulo_scanner_web() -> None:
 
 def modulo_waf() -> None:
     """Módulo 4 — WAF + Tampers."""
-    console.print(Panel("[bold red]◉ WAF + TAMPERS[/]", border_style="red"))
+    console.print(Panel("[bold red]◉ WAF + TAMPERS[/]", border_style="red", expand=False))
 
-    url = Prompt.ask("  Alvo").strip()
+    url = _pedir_url()
     if not url:
         return
 
@@ -330,8 +363,10 @@ def modulo_waf() -> None:
     engine.detectar_waf(url)
 
     console.print()
-    if Confirm.ask("  Selecionar tampers recomendados?", default=True):
-        waf = Prompt.ask("  WAF detectado (cloudflare/modsecurity/imperva/f5/akamai)").strip()
+    if Confirm.ask("  Selecionar tampers?", default=True):
+        waf = Prompt.ask("  WAF (cloudflare/modsecurity/imperva/f5/akamai)", default="").strip()
+        if not waf:
+            return
         dbms = Prompt.ask("  DBMS (mysql/mssql/postgresql/oracle/all)", default="all").strip()
         nivel = Prompt.ask("  Nível (leve/padrao/pesado)", default="padrao").strip()
         engine.selecionar_tampers(waf, dbms, nivel)
@@ -339,9 +374,9 @@ def modulo_waf() -> None:
 
 def modulo_enum_web() -> None:
     """Módulo 5 — Enumeração Web."""
-    console.print(Panel("[bold red]◉ ENUMERAÇÃO WEB[/]", border_style="red"))
+    console.print(Panel("[bold red]◉ ENUMERAÇÃO WEB[/]", border_style="red", expand=False))
 
-    url = Prompt.ask("  Alvo").strip()
+    url = _pedir_url()
     if not url:
         return
 
@@ -353,10 +388,16 @@ def modulo_enum_web() -> None:
 
 def modulo_subdominios() -> None:
     """Módulo 6 — Subdominios."""
-    console.print(Panel("[bold red]◉ ENUMERAÇÃO DE SUBDOMINIOS[/]", border_style="red"))
+    console.print(Panel("[bold red]◉ SUBDOMÍNIOS[/]", border_style="red", expand=False))
 
-    dominio = Prompt.ask("  Domínio [dim](ex: exemplo.com ou http://exemplo.com)[/]").strip()
+    raw = Prompt.ask("  Domínio [dim](ex: site.com)[/]\n  [dim][Enter=voltar][/]", default="").strip()
+    if not raw:
+        return
+
+    # Remove protocolo e caminhos, deixa só o domínio
+    dominio = raw.replace("https://", "").replace("http://", "").split("/")[0].strip()
     if not dominio:
+        console.print("  [red]Domínio inválido.[/]")
         return
 
     threads = _pedir_inteiro("  Threads", default=30, min_val=1, max_val=100)
@@ -630,14 +671,15 @@ def processar_url_direta(url: str, agente: "AgenteIA") -> None:  # type: ignore[
     console.print()
     console.print(f"  [cyan]Alvo:[/] {url}")
     console.print()
-    console.print("  O que deseja fazer?")
-    console.print("    [1] Scan Completo Automático (tudo)")
-    console.print("    [2] Só SQLMap (dump completo)")
-    console.print("    [3] Só Scanner Web (XSS/LFI/SSRF...)")
-    console.print("    [4] Só Enumeração (dirs/techs/robots)")
-    console.print("    [5] Perguntar ao Vlad IA o que fazer")
+    console.print("  O que fazer?")
+    console.print("    [1] Scan Completo")
+    console.print("    [2] SQLMap")
+    console.print("    [3] Scanner Web")
+    console.print("    [4] Enumeração")
+    console.print("    [5] Perguntar ao Vlad IA")
+    console.print("    [0] Voltar")
 
-    op = Prompt.ask("  Opção", default="1").strip()
+    op = _selecionar("  Opção", ["1","2","3","4","5","0"], default="1")
 
     if op == "1":
         from modulos.scanner_completo import ScannerCompleto
@@ -662,9 +704,10 @@ def processar_url_direta(url: str, agente: "AgenteIA") -> None:  # type: ignore[
                     f"Preciso testar o site: {url}. Por onde devo começar e qual o comando mais adequado?"
                 )
             console.print()
-            console.print(Panel(resposta, title="[bold red]Vlad[/]", border_style="red"))
+            console.print(Panel(resposta, title="[bold red]Vlad[/]", border_style="red", expand=False))
         else:
-            console.print("  [yellow]IA não configurada. Configure em [9] Configurações.[/]")
+            console.print("  [yellow]IA não configurada. Configure em [9].[/]")
+    # op == "0" → só retorna
 
 
 # ─────────────────────────── LOOP PRINCIPAL ──────────────────────────────────
@@ -737,7 +780,13 @@ def loop_principal(agente, furtivo=None, conhecimento=None) -> None:  # type: ig
         # URL direta
         if entrada.startswith(("http://", "https://", "www.")):
             url = entrada if entrada.startswith("http") else "http://" + entrada
-            processar_url_direta(url, agente)
+            try:
+                processar_url_direta(url, agente)
+            except KeyboardInterrupt:
+                console.print("\n  [yellow]Interrompido.[/]")
+            except Exception as e:
+                console.print(f"\n  [red]Erro:[/] {e}")
+            _pausar()
             exibir_menu_principal(agente.disponivel(), furtivo.ativo if furtivo else False)
             continue
 
@@ -758,10 +807,11 @@ def loop_principal(agente, furtivo=None, conhecimento=None) -> None:  # type: ig
                 }[entrada]
                 acao()
             except KeyboardInterrupt:
-                console.print("\n  [dim]Módulo interrompido.[/]")
+                console.print("\n  [yellow]Módulo interrompido.[/]")
             except Exception as e:
-                console.print(f"\n  [red]Erro no módulo:[/] {e}")
+                console.print(f"\n  [red]Erro:[/] {e}")
 
+            _pausar()
             exibir_menu_principal(agente.disponivel(), furtivo.ativo if furtivo else False)
             continue
 
@@ -775,12 +825,11 @@ def loop_principal(agente, furtivo=None, conhecimento=None) -> None:  # type: ig
                 title="[bold red]Vlad IA[/]",
                 border_style="red",
                 box=box.ROUNDED,
+                expand=False,
             ))
         else:
             console.print(
-                "  [dim]Dica: Configure a IA via[/] [bold]menu [9][/] "
-                "[dim]para digitar em linguagem natural.[/]\n"
-                f"  [dim]Ou use um número do menu (1-9, 0).[/]"
+                "  [dim]Digite um número (1-9, 0) ou configure IA via [9].[/]"
             )
 
         exibir_menu_principal(agente.disponivel(), furtivo.ativo if furtivo else False)
