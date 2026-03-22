@@ -256,21 +256,25 @@ class VladEngine:
             saida_texto = stdout + stderr
 
             # Parsear saída
-            achado = self.parser.parsear_texto(saida_texto, alvo)
+            achado = self.parser.analisar(saida_texto)
 
-            if achado.pontos_injecao:
-                for pi in achado.pontos_injecao:
+            if achado.injetavel:
+                parametros = achado.parametros_injetaveis or ["parâmetro detectado"]
+                for pi in parametros:
                     relatorio.adicionar_vuln(
                         tipo="SQL Injection",
                         severidade="critico" if achado.eh_dba else "alto",
-                        parametro=pi.parametro,
-                        descricao=f"Injeção {', '.join(pi.tecnicas)} via {pi.tipo_param}",
-                        evidencia=pi.parametro,
+                        parametro=pi,
+                        descricao=(
+                            f"Injeção SQL via {pi}. "
+                            f"Técnicas: {', '.join(achado.tecnicas_encontradas) or 'não identificadas'}"
+                        ),
+                        evidencia=pi,
                         recomendacao="Use consultas parametrizadas (prepared statements)"
                     )
                 _imprimir_ok(
                     f"[bold red]INJEÇÃO SQL CONFIRMADA![/bold red] "
-                    f"{len(achado.pontos_injecao)} ponto(s) vulnerável(eis)"
+                    f"{len(parametros)} ponto(s) vulnerável(eis)"
                 )
             else:
                 _imprimir_info("Nenhuma injeção SQL detectada neste parâmetro")
@@ -279,14 +283,14 @@ class VladEngine:
                 relatorio.dbms = achado.dbms
             if achado.sistema_op and not relatorio.sistema_op:
                 relatorio.sistema_op = achado.sistema_op
-            if achado.info_db.usuario_atual:
-                relatorio.usuario_db = achado.info_db.usuario_atual
-            if achado.info_db.eh_dba:
+            if achado.usuario_db:
+                relatorio.usuario_db = achado.usuario_db
+            if achado.eh_dba:
                 relatorio.eh_dba = True
-            if achado.info_db.bancos:
-                relatorio.bancos_encontrados = achado.info_db.bancos
-            if achado.info_db.credenciais:
-                relatorio.credenciais_extraidas = len(achado.info_db.credenciais)
+            if achado.bancos:
+                relatorio.bancos_encontrados = achado.bancos
+            if achado.dados_extraidos:
+                relatorio.credenciais_extraidas = len(achado.dados_extraidos)
 
         except subprocess.TimeoutExpired:
             # Encerrar processo que ainda está rodando

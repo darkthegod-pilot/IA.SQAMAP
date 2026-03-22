@@ -211,33 +211,108 @@ def _sqlmap_automatico(url: str) -> None:
 
 
 def _sqlmap_semi_auto(url: str) -> None:
-    console.print("\n  [bold cyan]Modo Semi-Automático[/]")
     from core.engine import VladEngine
-    from utils import DetectorWAF, SeletorTamper
+
+    console.print()
+    console.print(Panel(
+        "[bold cyan]SQLMap Semi-Automático[/]\n"
+        "[dim]Você confirma cada passo antes\n"
+        "de executar. [0] volta ao menu.[/]",
+        border_style="cyan",
+        expand=False,
+    ))
 
     engine = VladEngine(verboso=True)
+    waf_detectado: Optional[str] = None
+    usar_tampers = False
 
-    # Etapa 1: WAF
-    if Confirm.ask("  [1/4] Detectar WAF?", default=True):
-        engine.detectar_waf(url)
+    # ── Passo 1: WAF ─────────────────────────────────────────────────────────
+    console.print("\n  [bold]Passo 1/4[/] — Detecção de WAF")
+    console.print("    [1] Detectar agora")
+    console.print("    [2] Informar manualmente")
+    console.print("    [3] Pular")
+    console.print("    [0] Voltar")
+    p1 = _selecionar("  Escolha", ["1","2","3","0"], default="1")
 
-    # Etapa 2: Técnica
-    waf = Prompt.ask("  [2/4] WAF detectado (ou vazio)", default="").strip() or None
-    dbms = Prompt.ask("  [3/4] DBMS suspeito (mysql/mssql/postgresql/oracle ou vazio)", default="").strip() or "all"
+    if p1 == "0":
+        return
+    elif p1 == "1":
+        waf_detectado = engine.detectar_waf(url)
+        if waf_detectado:
+            console.print(f"  [yellow]→ WAF:[/] {waf_detectado}")
+        else:
+            console.print("  [dim]→ Nenhum WAF identificado.[/]")
+    elif p1 == "2":
+        waf_detectado = Prompt.ask(
+            "  WAF [dim](cloudflare/modsecurity/imperva/f5/akamai)[/]",
+            default=""
+        ).strip() or None
 
-    if waf and Confirm.ask(f"  Selecionar tampers para {waf}?", default=True):
-        engine.selecionar_tampers(waf, dbms)
+    # ── Passo 2: DBMS ─────────────────────────────────────────────────────────
+    console.print("\n  [bold]Passo 2/4[/] — DBMS")
+    console.print("    [1] MySQL")
+    console.print("    [2] MSSQL")
+    console.print("    [3] PostgreSQL")
+    console.print("    [4] Oracle")
+    console.print("    [0] Auto-detectar (padrão)")
+    p2 = _selecionar("  Escolha", ["1","2","3","4","0"], default="0")
 
-    # Etapa 4: Scan
-    if Confirm.ask("  [4/4] Executar SQLMap agora?", default=True):
-        opcoes = {"modo": "padrao", "enum_completo": True}
-        if waf:
-            opcoes["waf"] = waf
-        if dbms and dbms != "all":
-            opcoes["dbms"] = dbms
-        relatorio = engine.scan_sqlmap_direto(url, opcoes=opcoes)
-        if relatorio:
-            relatorio.exibir_resumo_terminal()
+    dbms_map = {"1": "mysql", "2": "mssql", "3": "postgresql", "4": "oracle", "0": None}
+    dbms = dbms_map[p2]
+
+    # ── Passo 3: Tampers ──────────────────────────────────────────────────────
+    if waf_detectado:
+        console.print(f"\n  [bold]Passo 3/4[/] — Tampers para {waf_detectado}")
+        usar_tampers = Confirm.ask("  Selecionar tampers recomendados?", default=True)
+        if usar_tampers:
+            engine.selecionar_tampers(waf_detectado, dbms or "all")
+    else:
+        console.print("\n  [bold]Passo 3/4[/] — Tampers")
+        console.print("  [dim]Nenhum WAF detectado. Pulando tampers.[/]")
+
+    # ── Passo 4: Perfil ───────────────────────────────────────────────────────
+    console.print("\n  [bold]Passo 4/4[/] — Perfil de Scan")
+    console.print("    [1] Rápido   (B,U — level 1, risk 1)")
+    console.print("    [2] Padrão   (B,E,U — level 3, risk 2)")
+    console.print("    [3] Profundo (todos — level 5, risk 3)")
+    console.print("    [4] Furtivo  (B,T — delays lentos)")
+    console.print("    [0] Cancelar")
+    p4 = _selecionar("  Perfil", ["1","2","3","4","0"], default="2")
+
+    if p4 == "0":
+        return
+
+    perfil_map = {"1": "rapido", "2": "padrao", "3": "profundo", "4": "furtivo"}
+    perfil = perfil_map[p4]
+
+    # ── Resumo e confirmação ──────────────────────────────────────────────────
+    console.print()
+    console.print(Panel(
+        "\n".join([
+            f"  Alvo:   {url}",
+            f"  WAF:    {waf_detectado or 'nenhum/desconhecido'}",
+            f"  DBMS:   {dbms or 'auto-detectar'}",
+            f"  Perfil: {perfil}",
+            f"  Tampers: {'sim' if usar_tampers else 'não'}",
+        ]),
+        title="[bold]Resumo[/]",
+        border_style="yellow",
+        expand=False,
+    ))
+
+    if not Confirm.ask("  Executar SQLMap?", default=True):
+        console.print("  [dim]Cancelado.[/]")
+        return
+
+    opcoes: dict = {"modo": perfil, "enum_completo": True}
+    if waf_detectado:
+        opcoes["waf"] = waf_detectado
+    if dbms:
+        opcoes["dbms"] = dbms
+
+    relatorio = engine.scan_sqlmap_direto(url, opcoes=opcoes)
+    if relatorio:
+        relatorio.exibir_resumo_terminal()
 
 
 def _sqlmap_manual(url: str) -> None:
